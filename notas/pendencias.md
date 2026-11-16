@@ -9,6 +9,7 @@ conforme o texto é editado; procure pelo texto da marca.
 
 Se usar Gemini, ChatGPT ou outra IA, siga a seção "Uso de outras IAs" do `CLAUDE.md`: a conversa inteira vai para
 `logs/ext_<AAAAMMDD>_<autor>_<ferramenta>.md`.
+Prompts prontos para colar (crítica de seção e leitura de artigo): `notas/prompts_outras_ias.md`.
 
 ## Ana: I Introdução, IV-A Velocidade, IV-B Memória, IV-C Atualização, IV-D Energia
 - [ ] artigo l.357 (IV-A): confirmar no yang18 qual tráfego foi usado na Fig. 14. O verificador não achou.
