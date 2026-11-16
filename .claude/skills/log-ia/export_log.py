@@ -61,17 +61,39 @@ def data(ts):
     return datetime.fromisoformat(ts.replace('Z', '+00:00')).astimezone(BRT)
 
 
+def relatorio(o):
+    """Texto do relatório de um subagente em segundo plano (vem em 'origin', fora da fala do usuário)."""
+    if o.get('handbackReportText'):
+        return o['handbackReportText']
+    corpo = o.get('body', '')
+    if '[Subagent hand-back]' not in corpo or 'The report follows:\n' not in corpo:
+        return None
+    return '\n'.join(l[2:] if l.startswith('  ') else l for l in corpo.split('The report follows:\n', 1)[1].splitlines())
+
+
 def le_sessao(caminho, raiz):
     inter, pend, notas, meta, atual = [], {}, [], {}, None
+    agentes, entregues = {}, set()
     for linha in open(caminho, encoding='utf-8'):
         d = json.loads(linha)
         t, m = d.get('type'), d.get('message') or {}
+        a = d.get('attachment') or {}
+        o = d.get('origin') or a.get('origin') or {}
+        if o.get('kind') == 'peer' and (r := relatorio(o)) and atual is not None and o.get('from') not in entregues:
+            entregues.add(o.get('from'))
+            tipo, desc = agentes.get(o.get('from'), (o.get('name', 'subagente'), ''))
+            atual['itens'].append(('claude', f"**Relatório do subagente `{tipo}`" + (f" ({desc})" if desc else '')
+                                   + ', entregue em segundo plano:**\n\n' + citar(r)))
+            continue
         if t == 'attachment':
-            a = d.get('attachment') or {}
             if atual and not atual['itens'] and a.get('type') in ANEXO:
                 atual['anexos'].append(os.path.basename(a[ANEXO[a['type']]].rstrip('/')))
             continue
         if t not in ('user', 'assistant') or d.get('isSidechain') or d.get('isMeta'):
+            continue
+        if d.get('isCompactSummary'):
+            if atual is not None:
+                atual['itens'].append(('resumo', texto(m.get('content')).strip()))
             continue
         meta.setdefault('versao', d.get('version'))
         if m.get('model'):
@@ -88,7 +110,12 @@ def le_sessao(caminho, raiz):
                 elif nome == 'ExitPlanMode':
                     atual['itens'].append(('usuario', '*Aprovou o plano.*' if 'approved your plan' in r else r))
                 elif nome == 'Agent':
-                    atual['itens'].append(('claude', '**Relatório do subagente:**\n\n' + citar(r)))
+                    res = d.get('toolUseResult') or {}
+                    if res.get('status') == 'async_launched':
+                        # o relatório chega depois, como mensagem do subagente (ver relatorio())
+                        agentes[res.get('agentId')] = (e.get('subagent_type', 'general-purpose'), e.get('description', ''))
+                    else:
+                        atual['itens'].append(('claude', '**Relatório do subagente:**\n\n' + citar(r)))
             continue
         if t == 'user':
             s = LIXO.sub('', texto(c)).strip()
@@ -153,6 +180,12 @@ def render(inter, meta, autor):
                 acoes = []
             if tipo == 'fim':
                 break
+            if tipo == 'resumo':
+                out += ['### Resumo automático de contexto (Claude Code)', '',
+                        '*O contexto da conversa encheu e o Claude Code gerou o resumo abaixo, que passou a substituir as '
+                        'mensagens anteriores para o modelo. Não foi digitado pelo usuário.*', '', citar(s), '']
+                quem = 'resumo'
+                continue
             fala = 'Claude' if tipo == 'claude' else autor
             if fala != quem:
                 out += [f'### {fala}', '']
@@ -192,7 +225,15 @@ def selftest():
         {'type': 'user', 'toolUseResult': {'answers': {'Q1?': 'Resposta do usuário'}}, 'message': {'content': [
             {'type': 'tool_result', 'tool_use_id': 'a', 'content': 'saída bruta'},
             {'type': 'tool_result', 'tool_use_id': 'q', 'content': 'The user answered'}]}},
-        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Resposta final.'}]}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Resposta final.'},
+            {'type': 'tool_use', 'id': 'g', 'name': 'Agent', 'input': {'subagent_type': 'leitor', 'description': 'Fichar X', 'prompt': 'Leia X'}}]}},
+        {'type': 'user', 'toolUseResult': {'status': 'async_launched', 'agentId': 'ag1'}, 'message': {'content': [
+            {'type': 'tool_result', 'tool_use_id': 'g', 'content': 'Async agent launched. agentId: ag1 METADADO'}]}},
+        {'type': 'user', 'isCompactSummary': True, 'timestamp': '2026-11-16T13:05:00Z', 'message': {'content': 'This session is being continued RESUMO'}},
+        {'type': 'attachment', 'attachment': {'type': 'queued_command', 'prompt': '<agent-message from="ag1">...', 'origin': {
+            'kind': 'peer', 'from': 'ag1', 'name': 'leitor', 'body': '[Subagent hand-back] aviso. The report follows:\n  Relatório real\n  linha 2'}}},
+        {'type': 'user', 'isMeta': True, 'origin': {'kind': 'peer', 'from': 'ag1', 'handbackReportText': 'Relatório real\nlinha 2'},
+         'message': {'content': 'duplicado'}},
     ]
     with tempfile.TemporaryDirectory() as tmp:
         f = os.path.join(tmp, 's.jsonl')
@@ -201,11 +242,13 @@ def selftest():
         inter, meta = le_sessao(f, tmp)
     md = render(inter, meta, 'Gabriel')
     for ok in ('Pedido real', '`enunciado.pdf`', 'comando local `/effort` (ok)', 'fala resumida *(narração)*',
-               '*Ações da IA: Bash: Lista arquivos.*', 'Q1? Opções: Sim', '1. Resposta do usuário', 'Resposta final.', 'Claude Code 9.9'):
+               '*Ações da IA: Bash: Lista arquivos.*', 'Q1? Opções: Sim', '1. Resposta do usuário', 'Resposta final.', 'Claude Code 9.9',
+               '### Resumo automático de contexto (Claude Code)', '> This session is being continued RESUMO',
+               '**Relatório do subagente `leitor` (Fichar X), entregue em segundo plano:**\n\n> Relatório real\n> linha 2'):
         assert ok in md, (ok, md)
-    for nao in ('segredo', 'NAO-VAZAR', 'interno', 'saída bruta'):
+    for nao in ('segredo', 'NAO-VAZAR', 'interno', 'saída bruta', 'METADADO', 'duplicado', 'aviso'):
         assert nao not in md, (nao, md)
-    assert len(inter) == 1
+    assert len(inter) == 1 and md.count('Relatório real') == 1
     print('selftest ok')
 
 

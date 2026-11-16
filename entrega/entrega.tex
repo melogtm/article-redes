@@ -74,8 +74,11 @@ Este log reúne todas as conversas do grupo com a IA durante o trabalho, na orde
   que o Claude Code grava (arquivo JSONL), pelo script \texttt{.claude/skills/log-ia/export\_log.py} do
   repositório. Os prompts e as respostas em texto aparecem inteiros. As chamadas de ferramentas aparecem
   resumidas em itálico, como \emph{Ações da IA}. Para cada subagente aparecem o pedido enviado e o relatório
-  devolvido. Quando o transcript guardou uma fala só como resumo de uma linha, ela aparece marcada como
-  \emph{(narração)}.
+  devolvido; os que rodaram em segundo plano têm o relatório no ponto em que ele chegou à conversa. Quando o
+  transcript guardou uma fala só como resumo de uma linha, ela aparece marcada como \emph{(narração)}. Quando o
+  contexto da conversa encheu, o Claude Code gerou um resumo automático (em inglês) que passou a substituir as
+  mensagens anteriores para o modelo; esses resumos aparecem inteiros, identificados como tal, e não foram
+  digitados por ninguém do grupo.
 \item \textbf{O que não aparece:} as instruções internas do sistema, o raciocínio interno do modelo e a
   saída bruta das ferramentas (conteúdo de arquivos e comandos).
 \end{itemize}
@@ -126,7 +129,12 @@ pacotes; atribuir ao SAIL a estatística de distribuição de prefixos que ele c
 preprint do DXR em vez da versão publicada; ler ``ms'' onde o PDF diz ``\textmu s'' (a extração de texto do PDF perde o
 símbolo); usar a numeração de seções do relatório técnico do survey; citar um limiar de ``880 mil rotas'' que não aparece
 em nenhum dos artigos; apresentar como causal (``daí'') uma relação que o Tree Bitmap não afirma; e citar o fator 7,98 do
-CoolCAMs sem dizer que ele vale só para uma das variantes. \revisar{acrescentar o que a revisão do grupo encontrar}
+CoolCAMs sem dizer que ele vale só para uma das variantes. Na segunda rodada de verificação, o agente verificador achou
+mais três: apresentar os 21,8\% do Poptrie como pacotes que casam prefixos acima de /24, quando o número mede a
+profundidade da busca na árvore radix; ler como tamanho das tabelas de Shah e Gupta a linha ``Prefixes'' da Tab.~1, que
+é a soma de inserções e remoções; e cerca de quinze localizadores errados (seção ou página trocada), além de três
+inferências sem marca. O revisor crítico apontou vereditos sem apoio e comparações diretas entre plataformas
+diferentes. \revisar{acrescentar o que a revisão do grupo encontrar}
 
 \textbf{O que é do grupo.} \revisar{escrever, com as palavras do grupo, o que cada integrante revisou, reescreveu ou
 decidiu, e o que foi aceito da IA sem mudança. Seja específico: seção, tipo de mudança, motivo.}
