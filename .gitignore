@@ -1,0 +1,22 @@
+# Material de terceiros (artigos com copyright, slides, EP1): fica só na máquina local
+ep2_export/*
+!ep2_export/enunciado_trabalho_redes.pdf
+REDES_EP1.pdf
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.markdown.*
+_markdown_*/
+artigo/artigo.pdf
+
+# Claude Code: configuração local de cada integrante
+.claude/settings.local.json
+__pycache__/
