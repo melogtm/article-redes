@@ -89,6 +89,51 @@ Este log reúne todas as conversas do grupo com a IA durante o trabalho, na orde
 % ---------------- Parte III ----------------
 \clearpage
 \part*{Parte III: Declaração de uso de IA}
-\revisar{declaração a ser escrita na Fase 7}
+\addcontentsline{toc}{part}{Parte III: Declaração de uso de IA}
+
+\textbf{Modelo e ferramentas.} Usamos um único modelo, o Claude Opus 5.5 (Anthropic, identificador
+\texttt{claude-opus-5-5}), por duas ferramentas:
+\begin{itemize}
+\item claude.ai, no Projeto ``EP 2 - Redes'', em 31/10 e 01/11/2026 (conversas de Gabriel; dois primeiros arquivos da Parte II);
+\item Claude Code 2.1.325, a partir de 16/11/2026, com nível de esforço \textit{xhigh}, rodando no repositório do trabalho
+  (sessões exportadas automaticamente na Parte II). \revisar{acrescentar as sessões de Ana e Diogo, se houver}
+\end{itemize}
+
+\textbf{Finalidade de cada uso.}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}p{6.6cm} >{\raggedright\arraybackslash}p{6.2cm}}
+\hline
+Etapa & O que a IA fez & O que o grupo fez ou decidiu \\
+\hline
+Busca (31/10) & Sugeriu oito candidatos e dois de reserva, com link e DOI. & Baixou os PDFs. Descartou um candidato (classificação de pacotes, não LPM). \\
+Primeira leitura (31/10--01/11) & Comparou os PDFs com o que tinha afirmado e registrou as próprias correções. & Trocou o preprint do DXR e o relatório técnico do survey pelas versões publicadas. \\
+Organização (16/11) & Escreveu o \texttt{CLAUDE.md} com as regras do projeto, três agentes (leitor, verificador, revisor), a skill de exportação do log e o repositório git. & Definiu as regras (referência só com PDF, localizador da versão publicada, inferência marcada). \\
+Fichamento (16/11) & Sete agentes leitores, um por artigo, gravaram fichamentos com localizadores e reconferiram os números das conversas anteriores. & \revisar{quem leu quais fichamentos} \\
+Referências (16/11) & Montou o BibTeX a partir dos metadados oficiais dos DOIs (doi.org), conferidos contra os títulos dos PDFs. & \revisar{conferência do grupo} \\
+Tese e estrutura (16/11) & Propôs a tese e a estrutura. & Pediu para combinar a tese com a comparação ``quem ganha em cada cenário''; decidiu que a seção sobre IA no artigo seria curta. \\
+Rascunho (16/11) & Escreveu a primeira versão completa do artigo, com tabelas e a figura. & \revisar{o que cada integrante revisou e mudou} \\
+Estilo (16/11) & Aplicou a skill \textit{humanizer} para tirar vícios de texto de IA, sem mudar números nem citações. & \revisar{} \\
+Verificação (16/11) & Os agentes verificador e revisor conferiram números e localizadores contra os PDFs e leram o texto pelos critérios do enunciado; a IA corrigiu o que apontaram. & \revisar{} \\
+\LaTeX\ e log (16/11) & Preâmbulo IEEEtran, documento de entrega e o script que exporta as sessões do Claude Code. & \revisar{} \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{Erros da IA encontrados na verificação.} Tratar como evidência sobre LPM um artigo de classificação de
+pacotes; atribuir ao SAIL a estatística de distribuição de prefixos que ele cita de outros autores; usar números do
+preprint do DXR em vez da versão publicada; ler ``ms'' onde o PDF diz ``\textmu s'' (a extração de texto do PDF perde o
+símbolo); usar a numeração de seções do relatório técnico do survey; citar um limiar de ``880 mil rotas'' que não aparece
+em nenhum dos artigos; apresentar como causal (``daí'') uma relação que o Tree Bitmap não afirma; e citar o fator 7,98 do
+CoolCAMs sem dizer que ele vale só para uma das variantes. \revisar{acrescentar o que a revisão do grupo encontrar}
+
+\textbf{O que é do grupo.} \revisar{escrever, com as palavras do grupo, o que cada integrante revisou, reescreveu ou
+decidiu, e o que foi aceito da IA sem mudança. Seja específico: seção, tipo de mudança, motivo.}
+
+\textbf{Integridade do log.} O log da Parte II tem só interações reais, sem nenhuma omitida. As duas conversas do
+claude.ai foram copiadas como registradas, e as sessões do Claude Code foram exportadas sem edição dos arquivos que a
+ferramenta grava. O que a exportação deixa de fora (instruções internas, raciocínio do modelo, saída bruta das
+ferramentas) está descrito no início da Parte II.
 
 \end{document}

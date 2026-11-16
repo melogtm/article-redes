@@ -3,19 +3,604 @@
 \usepackage[utf8]{inputenc}
 \usepackage[brazil]{babel}
 \usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{array}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{babel}
+\setlength{\tabcolsep}{4pt}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{url}
 \usepackage[hidelinks]{hyperref}
 % Trecho que o grupo ainda precisa validar (não remover sem o grupo pedir)
 \newcommand{\revisar}[1]{\textcolor{red}{[REVISAR: #1]}}
+\newcommand{\us}{\,\textmu s}
+\renewcommand{\IEEEkeywordsname}{Palavras-chave}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
 
 \begin{document}
-\title{Rascunho em preparação}
-\author{\IEEEauthorblockN{Gabriel Trigueiro Melo (15511832), Ana Vitória Chaves Viana (12733869), Diogo dos Santos da Rocha (13673281)}
-\IEEEauthorblockA{Escola de Artes, Ciências e Humanidades (EACH), Universidade de São Paulo}}
+
+\title{TCAM ou algoritmo? Uma revisão crítica do lookup por \textit{longest prefix match} em velocidade, memória, atualização e energia}
+
+\author{\IEEEauthorblockN{Gabriel Trigueiro Melo (15511832), Ana Vitória Chaves Viana (12733869),\\
+Diogo dos Santos da Rocha (13673281)}
+\IEEEauthorblockA{Escola de Artes, Ciências e Humanidades (EACH), Universidade de São Paulo\\
+ACH2026 Redes de Computadores}}
+
 \maketitle
-\revisar{corpo do artigo ainda não escrito} \cite{ruiz01,shah01,zane03,eath04,zec12,asai15,yang18}
+
+\begin{abstract}
+Para repassar um pacote IP, o roteador precisa achar na tabela de repasse o prefixo mais longo que casa com o
+endereço de destino (LPM). Há duas famílias de solução: memórias ternárias endereçáveis por conteúdo (TCAM) e
+estruturas algorítmicas em SRAM, DRAM ou cache, como Tree Bitmap, DXR, Poptrie e SAIL. Esta revisão analisa sete
+artigos publicados entre 2001 e 2018 e compara o que cada um mede em quatro eixos: velocidade de lookup, memória,
+custo de atualização e energia. Os números publicados não são comparáveis diretamente. Cada artigo mede com
+rigor o eixo em que a sua proposta é forte e trata os demais por modelo ou de forma qualitativa, e grandezas com o mesmo
+nome, como memória e custo de atualização, medem coisas diferentes em cada um. Normalizados por cenário, porém,
+os resultados deixam de se anular. A disputa entre Poptrie e SAIL, por exemplo, se explica pela fração do tráfego que
+casa prefixos maiores que /24, pelo tamanho da cache e por quem implementou o concorrente. Propomos uma tabela de
+cenários com a abordagem mais bem sustentada em cada um e o tipo de evidência, e listamos as medições que nenhum
+dos artigos fez, em especial o pior caso de atualização durante rajadas e a energia das soluções algorítmicas.
+\end{abstract}
+
+\begin{IEEEkeywords}
+longest prefix match, TCAM, lookup de endereço IP, tabela de repasse, Poptrie, SAIL, DXR, Tree Bitmap
+\end{IEEEkeywords}
+
+% =====================================================================
+\section{Introdução}
+
+O plano de dados de um roteador decide a porta de saída de cada pacote consultando a tabela de repasse (FIB).
+Desde o CIDR, essa consulta é a busca pelo prefixo mais longo que casa com o endereço de destino
+(\textit{longest prefix match}, LPM), e a busca acontece em duas dimensões, o valor e o comprimento do
+prefixo~\cite[p.~10]{ruiz01}. A exigência de velocidade é alta: com pacotes de tamanho mínimo, um enlace de
+100~GbE pede 148,8 milhões de lookups por segundo (Mlps)~\cite[\S1]{asai15}. A tabela também cresce. Tabelas BGP
+completas passavam de 500 mil rotas em 2014~\cite[\S1]{asai15}, e o SAIL cita mais de 700 mil entradas segundo o
+RIPE NCC~\cite[\S I-A]{yang18}.
+
+Há duas famílias de solução. A primeira usa TCAM, uma memória que compara a chave com todas as entradas em paralelo
+e devolve a primeira que casa~\cite[p.~38]{shah01}. A segunda guarda a tabela numa estrutura de dados (tries
+comprimidas, índices diretos, busca binária em faixas) em SRAM, DRAM ou na cache da CPU e paga cada lookup em acessos
+à memória~\cite[pp.~13--14]{ruiz01}. Os artigos da segunda família costumam começar dizendo que a TCAM gasta energia
+demais e custa caro~\cite[\S1]{zec12}, \cite[\S1]{asai15}, \cite[\S II]{yang18}. Os da primeira a descrevem como
+rápida, simples de gerenciar e de custo competitivo~\cite{zane03}.
+
+Cada artigo mede, porém, numa plataforma própria, com tabelas, tráfego e unidades próprios. O Poptrie se declara de
+1,37 a 2,62 vezes mais rápido que o SAIL~\cite[\S4.5]{asai15}. Três anos depois, o SAIL se declara de 1,13 a 1,72
+vezes mais rápido que o Poptrie~\cite[\S VI-C]{yang18}. Lidos lado a lado, os números parecem se anular.
+
+Esta revisão pergunta se os resultados publicados permitem escolher uma abordagem para LPM, e em quais condições.
+Os números não são comparáveis diretamente, porque cada artigo mede com rigor o eixo em que a proposta é forte e trata
+os outros por modelo ou de forma qualitativa. Quando normalizados por cenário, porém, deixam de se anular e mostram
+onde cada solução vence.
+
+As contribuições são: tabelas que põem lado a lado, com a condição de medida, os números de velocidade, memória e
+atualização dos sete artigos; uma análise da divergência entre Poptrie e SAIL; a comparação entre a escala testada em
+cada artigo e os limites de formato de cada estrutura; uma tabela de cenários com a abordagem mais bem sustentada em
+cada um e o tipo de evidência; e a lista do que uma comparação futura precisaria informar. A Seção~II descreve o método,
+a III resume os fundamentos, a IV analisa os quatro eixos e a escala, a V discute os cenários, a VI trata das
+limitações e a VII conclui.
+
+% =====================================================================
+\section{Método da revisão}
+
+\subsection{Busca e seleção}
+A busca exploratória foi feita no IEEE Xplore, na ACM Digital Library e no Google Scholar, com combinações de
+``IP lookup'', ``longest prefix match'', ``TCAM update'' e ``TCAM power''.
+\revisar{confirmar as bases e as strings que o grupo de fato usou; o log de 31/10 registra só a busca feita pela IA}
+Os critérios de inclusão foram:
+publicação revisada por pares; tratar de LPM para repasse IP; trazer dados sobre pelo menos um dos quatro eixos; e
+haver versão publicada acessível pela rede da USP. A busca, feita com ajuda da IA (Seção~II-C), levantou oito candidatos
+e dois de reserva. Um dos oito, sobre atualização de TCAM (He et al., IEEE/ACM ToN 2018), foi descartado depois da
+leitura, porque trata de classificação de pacotes multicampo e não de LPM.
+\revisar{o PDF do He et al. não está em ep2\_export; anexar o PDF ou retirar o nome} Os dois de reserva não foram lidos.
+De três artigos, a primeira versão obtida não era a que citamos. Do DXR e do survey, tínhamos um preprint e um relatório
+técnico, com números e numeração diferentes dos da versão publicada, e trocamos os dois pela versão de periódico. Do SAIL,
+usamos a versão estendida da IEEE/ACM ToN de 2018 em vez da do SIGCOMM 2014, porque ela é posterior ao Poptrie e
+responde às medições dele~\cite[\S VI-C]{yang18}. Com três integrantes, o mínimo exigido é
+$\lceil 1{,}5 \times 3 \rceil = 5$ artigos; o corpus final tem sete (Tabela~\ref{tab:corpus}).
+
+\begin{table*}[t]
+\centering
+\caption{Corpus da revisão e condições de avaliação de cada artigo}
+\label{tab:corpus}
+\footnotesize
+\begin{tabular}{P{2.3cm} P{2.0cm} P{3.0cm} P{3.4cm} P{2.8cm} P{2.8cm}}
+\toprule
+Artigo & Família & Plataforma & Tabelas & Tráfego & Concorrentes implementados por \\
+\midrule
+Ruiz-Sánchez et al., 2001~\cite{ruiz01} & survey & Pentium Pro 200 MHz (p.~21) & MaeEast de 1999, 47.113 prefixos (p.~22) & uniforme por prefixo (p.~22) & FreeBSD, autores originais e os próprios (p.~21) \\
+Shah e Gupta, 2001~\cite{shah01} & TCAM, atualização & simulação (p.~43) & MAE-EAST e MAE-WEST, 35--43 mil (Tab.~1) & só traços de update de 3 h (p.~43) & os autores (p.~39) \\
+Zane et al., 2003~\cite{zane03} & TCAM, energia & simulação em PC de 800 MHz (\S III-D) & 2 reais, 110--122 mil; 1 sintética de $\approx$1M (Tab.~II, \S III-D) & não usa (métrica não depende de tráfego) & só variantes próprias \\
+Eatherton et al., 2004~\cite{eath04} & trie multibit & análise e projeto de hardware (\S7) & Mae-East e Mae-West, 19--41 mil; 1M aleatória (Tab.~6) & nenhum & números da literatura (\S3) \\
+Zec et al., 2012~\cite{zec12} & índice direto e faixas & AMD FX-8150 com 8 núcleos; Xeon W3530 (\S4.1) & 3 tabelas BGP, 412--421 mil (Tab.~1) & sintético uniforme (\S4.1) & os autores (DIR-24-8) e radix do FreeBSD (\S4.3) \\
+Asai e Ohara, 2015~\cite{asai15} & trie comprimida & i7-4770K, 1 núcleo, L3 de 8 MiB (\S4) & 35 reais de 509--532 mil; 4 sintéticas de 756--886 mil (Tab.~1) & aleatório, sequencial, repetido e trace de borda (\S4.2) & os autores, todos (\S4) \\
+Yang et al., 2018~\cite{yang18} & bitmaps em níveis & FPGA simulado; i7-3520M com 1 núcleo, L3 de 4 MB; GPU; many-core (\S V) & RIPE, 114--495 mil (Tab.~IV); 12 FIBs de um tier-1 & trace do tier-1, aleatório e por prefixo (\S VI-A) & os autores (4 de 5); código aberto do Poptrie (\S VI-A, \S VI-C) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Procedimento de análise}
+Cada artigo foi lido inteiro e fichado pelo mesmo roteiro: premissas sobre a FIB, o tráfego, o hardware e a taxa de
+atualização; plataforma e cargas de teste; quem implementou os concorrentes; números com unidade, condição e
+localizador; limitações admitidas pelos autores e limitações que deduzimos. Separamos o que o artigo afirma do que é
+dedução nossa, e no texto as deduções aparecem como tal (``pela nossa leitura'', ``conta nossa''). Quando o texto
+extraído do PDF era ambíguo, conferimos o número na página renderizada. A extração automática troca ``\textmu s'' por
+``ms'' no DXR~\cite[\S4.4]{zec12} e na tabela de tempos do survey~\cite[Tab.~3]{ruiz01}, um erro de três ordens de
+grandeza que só a página renderizada mostra. Gráficos sem rótulo numérico não foram usados como fonte de números. Os localizadores seguem a
+paginação impressa da versão publicada de cada artigo.
+
+\subsection{Uso de IA}
+O enunciado exige o uso de IA generativa. Usamos o Claude Opus 5.5 (Anthropic) em duas etapas. Na primeira, de 31/10 a
+01/11/2026, pelo claude.ai, a IA sugeriu candidatos com link; o grupo baixou os PDFs, e a IA os comparou com o que tinha
+afirmado antes. Na segunda, a partir de 16/11/2026, usamos o Claude Code com acesso ao repositório do trabalho e criamos três
+agentes: um leitor que faz o fichamento de um artigo (rodamos sete em paralelo), um verificador que confere cada número do
+texto contra o PDF e um revisor que lê o artigo pelos critérios do enunciado. A IA escreveu o primeiro rascunho deste texto
+a partir dos fichamentos e da estrutura aprovada pelo grupo, e a skill \textit{humanizer} foi usada para tirar vícios de
+estilo. As referências vieram dos metadados oficiais dos DOIs, nunca da memória do modelo.
+
+A verificação pegou erros da própria IA: tratar como evidência sobre LPM um artigo de classificação de pacotes;
+atribuir ao SAIL uma estatística de distribuição de prefixos que ele cita de outros autores; usar números de um preprint do
+DXR; ler ``ms'' onde o PDF diz ``\textmu s''; e citar um limiar de ``880 mil rotas'' que não aparece em nenhum dos dois artigos
+envolvidos. \revisar{descrever o que o grupo mudou ao revisar o rascunho e quem revisou cada seção}. O log completo e a
+declaração de uso estão nas Partes II e III da entrega.
+
+% =====================================================================
+\section{Fundamentos}
+
+\subsection{O problema e a taxonomia}
+Com $N$ prefixos de até $W$ bits ($W=32$ no IPv4 e 128 no IPv6), o LPM procura, entre os prefixos que casam com o
+endereço, o mais longo~\cite[p.~10]{ruiz01}. O survey de Ruiz-Sánchez et al. organiza as soluções algorítmicas por dois
+eixos: a dimensão buscada (o valor ou o comprimento do prefixo) e o modo de busca (linear ou binário). A eles somam-se
+técnicas auxiliares como expansão de prefixos, compressão e uso da hierarquia de memória~\cite[pp.~13--14]{ruiz01}. O mesmo
+survey fixa os critérios que usamos: velocidade de lookup, custo de atualização, memória e escalabilidade com o número e o
+comprimento dos prefixos~\cite[p.~20]{ruiz01}. O survey não trata de TCAM: o termo não aparece no texto, e o hardware
+dedicado se resume a uma arquitetura de dois bancos de memória~\cite[p.~16]{ruiz01}. Os dois artigos de TCAM do corpus
+cobrem essa lacuna.
+
+O survey compara os esquemas por complexidade assintótica~\cite[Tab.~2]{ruiz01} e mede só o tempo de lookup, num
+Pentium Pro de 200~MHz, com uma única tabela de 47.113 prefixos e tráfego uniforme por prefixo~\cite[Tab.~3,
+p.~22]{ruiz01}. Atualização e memória ficam no plano assintótico. Da comparação, os autores tiram um compromisso entre
+tempo de lookup e tempo de atualização~\cite[p.~22]{ruiz01}. As estruturas mais compactas, como a Lulea, não admitem
+atualização incremental, e ``rebuilding the whole structure is the only solution''~\cite[p.~18]{ruiz01}. Otimizar a
+estrutura para uma tabela só compensa se ela mudar pouco, ``but this is rarely the case for backbone
+routers''~\cite[p.~17]{ruiz01}. Os artigos posteriores herdam esse compromisso: DXR e Poptrie mantêm uma árvore radix
+ao lado da estrutura de lookup para reconstruir só a parte afetada por cada atualização~\cite[\S3.4]{zec12},
+\cite[\S3.5]{asai15}.
+
+\subsection{TCAM}
+Uma TCAM guarda cada prefixo como uma entrada ternária, com bits 0, 1 e ``não importa''. O endereço é comparado com todas
+as entradas em paralelo, e um codificador de prioridade escolhe a entrada que casa no menor endereço
+físico~\cite[p.~38, Fig.~1]{shah01}. Para que essa primeira entrada seja a do prefixo mais longo, prefixos sobrepostos mais
+longos precisam ficar em endereços menores. Por isso inserir um prefixo pode exigir deslocar entradas, até $O(N)$ na
+solução ingênua~\cite[p.~37]{shah01}. O outro custo é o consumo. Uma TCAM de alta densidade gasta de 12 a 15~W com todas as
+entradas habilitadas para busca~\cite[\S I]{zane03}, e o CoolCAMs modela a potência como proporcional ao número de entradas
+pesquisadas~\cite[\S II]{zane03}. Em 2003, um dispositivo de 18~Mbit guardava até 512 mil prefixos IPv4~\cite[\S II]{zane03}.
+
+Shah e Gupta propõem duas formas de reduzir o custo de manter a ordem, ambas com o espaço livre no centro da
+TCAM~\cite[pp.~40--41]{shah01}. O PLO\_OPT mantém a ordem por comprimento e move no máximo $L/2$ entradas por operação,
+com $L=32$ no IPv4. O CAO\_OPT parte da observação de que só prefixos sobrepostos, isto é, da mesma cadeia entre a raiz
+e uma folha da trie, precisam respeitar a ordem; assim, cada prefixo fica a no máximo $D/2$ posições de uma entrada
+livre, em que $D$ é o comprimento da maior cadeia~\cite[pp.~40--43]{shah01}. Os dois dependem de um software de gerência
+que mantém uma trie auxiliar fora do chip e envia as instruções à TCAM~\cite[p.~38]{shah01}. O CoolCAMs trata da energia:
+divide a tabela em grupos (\textit{buckets}) e pesquisa um só por lookup. Na seleção de bits, $k$ bits fixos entre os 16
+primeiros do endereço escolhem o grupo, e os prefixos com menos de 16 ou mais de 24 bits, menos de 2\% nas tabelas dos
+autores, ficam em blocos pesquisados em todo lookup~\cite[\S III-A]{zane03}. Na arquitetura por trie, uma TCAM de
+índice pequena, sempre pesquisada inteira, devolve o grupo, e a partição é feita por dois algoritmos sobre a trie,
+\textit{subtree-split} e \textit{postorder-split}~\cite[\S IV, Fig.~5]{zane03}.
+
+\subsection{Estruturas algorítmicas}
+As quatro propostas algorítmicas do corpus combinam um índice direto pelos primeiros bits com uma estrutura compacta para
+o restante. O Tree Bitmap é uma trie multibit em que cada nó tem dois bitmaps, um para os prefixos guardados no nó e outro
+para os filhos, que ficam contíguos. Ele não usa \textit{leaf pushing}, o que limita o custo de uma atualização ao tamanho
+de um nó~\cite[\S4]{eath04}. O DXR projeta a tabela em faixas de endereço: os $k$ primeiros bits ($k$ de 16 a 20) indexam uma
+tabela que aponta para o próximo salto ou para um bloco com busca binária~\cite[\S3.2]{zec12}. O Poptrie é uma trie de 64
+vias em que o índice do filho sai de uma contagem de bits (\texttt{popcnt}) sobre um vetor de 64 bits, com uma tabela de
+topo indexada pelos $s$ primeiros bits~\cite[\S3]{asai15}. O SAIL separa a descoberta do comprimento do prefixo, feita
+com bitmaps on-chip, da busca do próximo salto, feita em arrays off-chip, e trata à parte os prefixos de até /24 e os de
+/25 em diante. Na variante SAIL\_L, os prefixos são expandidos para os níveis 16, 24 e 32~\cite[\S I-C, \S IV]{yang18}.
+
+As quatro pagam o lookup em acessos à memória e dependem de a parte mais usada caber no nível rápido, seja SRAM on-chip
+ou cache. Em relação à TCAM, o custo sai da energia e vai para a hierarquia de memória e para a reconstrução de estruturas
+a cada atualização.
+
+% =====================================================================
+\section{Análise por eixo}
+
+\subsection{Velocidade de lookup}
+A Tabela~\ref{tab:velocidade} reúne os números de velocidade com a condição em que foram obtidos. Três diferenças impedem a
+leitura direta. A unidade varia entre lookups por segundo num laço de CPU (Mlps), pacotes por segundo (Mpps) e acessos por
+lookup no pior caso. A plataforma vai de um FPGA simulado a CPUs com caches de tamanhos diferentes. E nenhum número de CPU
+inclui o processamento real de pacotes: o DXR admite que o teste sintético isola o lookup e que, num roteador, outras etapas
+disputariam a cache~\cite[\S4.2]{zec12}, e pela descrição dos testes o mesmo vale para o Poptrie e o SAIL.
+
+\begin{table}[t]
+\centering
+\caption{Velocidade de lookup e condição de medida}
+\label{tab:velocidade}
+\footnotesize
+\begin{tabular}{P{1.35cm} P{1.45cm} P{3.0cm} P{1.3cm}}
+\toprule
+Esquema & Valor & Condição & Fonte \\
+\midrule
+TCAM & $>$100 Mlps & dispositivo de 18 Mbit, dado de fabricante & \cite[\S II]{zane03} \\
+Tree Bitmap & 25 M/s & meta de pior caso de um projeto de hardware, sem medição & \cite[\S7.2]{eath04} \\
+Tree Bitmap & 56,24 Mlps & medido pelo Poptrie, 1 núcleo, aleatório & \cite[Tab.~3]{asai15} \\
+DXR D16R & 490 Mlps & 8 núcleos, chaves uniformes & \cite{zec12} \\
+DXR D18R & 179,92 Mlps & medido pelo Poptrie, 1 núcleo, aleatório & \cite[Tab.~3]{asai15} \\
+Poptrie18 & 240,52 Mlps & 1 núcleo i7-4770K, aleatório & \cite[Tab.~3]{asai15} \\
+SAIL\_L & 158,22 Mlps & medido pelo Poptrie, mesma condição & \cite[Tab.~3]{asai15} \\
+SAIL\_L & 231,47--236,08 Mpps & 1 núcleo i7-3520M, aleatório & \cite[\S VI-C]{yang18} \\
+SAIL\_L & 673,22--708,71 Mpps & idem, trace do tier-1 & \cite[\S VI-C]{yang18} \\
+SAIL\_L & 479 Mpps & FPGA simulado, só estágios on-chip & \cite[\S VI-B]{yang18} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{O caso Poptrie e SAIL}
+O Poptrie reimplementou o SAIL e mediu o Poptrie18 de 1,37 a 2,62 vezes mais rápido com tráfego aleatório em 35
+tabelas~\cite[\S4.5]{asai15} e 1,22 vez mais rápido com um trace real~\cite[\S4.7]{asai15}. O SAIL, usando o código aberto
+do Poptrie, mediu o SAIL\_L de 1,13 a 1,14 vez mais rápido com tráfego aleatório e de 1,59 a 1,72 vez com tráfego
+real~\cite[\S VI-C]{yang18}. Os autores do SAIL atribuem o resultado do Poptrie a uma reimplementação que
+``probably introduces some unnecessary overhead''~\cite[\S VI-C]{yang18}. A Fig.~\ref{fig:razoes} põe as razões dos dois
+artigos na mesma escala. Antes de tratar os números como contraditórios,
+comparamos as condições de cada medida (Tabela~\ref{tab:fatores}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  scale only axis, width=0.5\columnwidth, height=4.2cm,
+  xmode=log, xmin=0.5, xmax=3,
+  xtick={0.5,0.75,1,1.5,2,3},
+  log ticks with fixed point,
+  xticklabel style={/pgf/number format/.cd, use comma, fixed, precision=2},
+  ytick={1,2,3,4,5,6,7}, y dir=reverse, ymin=0.4, ymax=7.6,
+  yticklabels={Poptrie: aleatório, Poptrie: trace de borda, Poptrie: sequencial, Poptrie: repetido,
+               SAIL: aleatório, SAIL: por prefixo, SAIL: trace tier-1},
+  tick label style={font=\footnotesize},
+  xlabel={vazão do Poptrie / vazão do SAIL\_L (escala log)},
+  xlabel style={font=\footnotesize},
+  xmajorgrids, grid style={gray!30},
+]
+\draw[dashed] (axis cs:1,0.4) -- (axis cs:1,7.6);
+\draw[very thick, |-|] (axis cs:1.37,1) -- (axis cs:2.62,1);
+\addplot[only marks, mark=*] coordinates {(1.22,2) (0.888,3) (0.976,4)};
+\draw[very thick, |-|] (axis cs:0.877,5) -- (axis cs:0.885,5);
+\draw[very thick, |-|] (axis cs:0.758,6) -- (axis cs:0.813,6);
+\draw[very thick, |-|] (axis cs:0.581,7) -- (axis cs:0.629,7);
+\end{axis}
+\end{tikzpicture}
+\caption{Razão entre a vazão do Poptrie e a do SAIL\_L em cada condição, segundo quem mediu. À direita da linha
+tracejada, o Poptrie é mais rápido. Barras são intervalos entre tabelas; pontos são medidas únicas. Fontes:
+\cite[\S4.5, \S4.7]{asai15} e \cite[\S VI-C]{yang18}. As razões sequencial e repetida e a inversão das razões do SAIL
+são conta nossa.}
+\label{fig:razoes}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Condições das medições cruzadas entre Poptrie e SAIL}
+\label{tab:fatores}
+\footnotesize
+\begin{tabular}{P{1.35cm} P{3.05cm} P{3.05cm}}
+\toprule
+Fator & Poptrie~\cite{asai15} & SAIL~\cite{yang18} \\
+\midrule
+CPU e cache & i7-4770K, L3 de 8 MiB, 1 núcleo (\S4) & i7-3520M, L3 de 4 MB, 1 núcleo (\S V-B, \S VI-C) \\
+Rival & SAIL\_L reimplementado, sem parâmetros informados (\S4) & código aberto do Poptrie, configuração não informada (\S VI-C) \\
+Demais concorrentes & todos reimplementados (\S4) & 4 de 5 implementados pelos autores (\S VI-A) \\
+Tráfego aleatório & xorshift, custo do gerador incluído (\S4.2) & geração não detalhada (\S VI-C) \\
+Tráfego real & roteador de borda de AS; 21,8\% dos pacotes casam $>$/24 (\S4.2, \S4.7) & roteador tier-1 na China; fração $>$/24 não informada (\S VI-A) \\
+Memória do SAIL & 44,24 MiB no total (Tab.~3) & no máximo 2,13 MB on-chip (\S IV-D) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Quatro fatores explicam a divergência sem que nenhum dos lados tenha errado as contas. O primeiro é o tráfego. O SAIL
+declara que o seu escopo é o backbone, onde quase todo pacote casa um prefixo de até /24, e admite que em roteadores de
+borda mais tráfego cai em prefixos longos e o lookup fica mais lento~\cite[\S I-C, \S VI-A]{yang18}. O trace real do Poptrie
+vem de um roteador de borda de AS, e nele 21,8\% dos pacotes casam prefixos maiores que /24, contra 1,66\% se os destinos
+fossem uniformes no espaço IPv4~\cite[\S4.2, \S4.7]{asai15}. Os dois traces reais estão, portanto, em lados opostos da
+premissa que o próprio SAIL declara. Há um ponto fraco do lado do SAIL: a premissa não é quantificada no trace do tier-1.
+O único número de tráfego acima de /24 que o artigo apresenta é para tráfego aleatório, de 0,021\% a
+0,025\%~\cite[\S VI-C, Fig.~11]{yang18}.
+
+Depois vem a combinação de localidade e cache. Nos dados do próprio Poptrie, o SAIL vence com tráfego sequencial
+(1264 contra 1122~Mlps) e repetido (492 contra 480~Mlps)~\cite[\S4.5]{asai15}. A distribuição de ciclos por lookup ajuda a
+entender: o SAIL tem mediana de 22 ciclos e percentil 99 de 299, e o Poptrie18 tem 46 e 169~\cite[Tab.~4]{asai15}. Pela
+nossa leitura, o SAIL é muito rápido quando o dado está na cache e lento quando precisa ir à DRAM. Com 44,24~MiB de
+estrutura e 8~MiB de L3, o tráfego aleatório leva o SAIL ao segundo caso, e o tráfego com localidade, como o do trace do
+tier-1, ao primeiro.
+
+Cada lado também mediu o rival com uma implementação que não controlava por completo. O SAIL
+mede a si mesmo a 231,47--236,08~Mpps com tráfego aleatório, numa CPU com metade da L3~\cite[\S VI-C]{yang18}, e o
+Poptrie mede o SAIL a 158,22~Mlps~\cite[Tab.~3]{asai15}. Essa diferença é compatível com a queixa do SAIL sobre a
+reimplementação. O SAIL, porém, tem o mesmo viés: implementou ele próprio quatro dos cinco concorrentes de
+CPU~\cite[\S VI-A]{yang18} e não informa a configuração do Poptrie que usou.
+
+Por último, a forma de medir. O Poptrie inclui na taxa o custo do gerador de endereços, 1,22~ns por
+lookup~\cite[\S4.2]{asai15}. A 240,52~Mlps, cada lookup leva 4,16~ns, dos quais cerca de 29\% são do gerador (conta
+nossa), o que reduz as razões entre os algoritmos. O SAIL não descreve como gera o tráfego aleatório.
+
+Os dois resultados, portanto, delimitam cenários. Com tráfego de backbone concentrado em prefixos de até /24 e boa
+localidade, o SAIL\_L lidera nas duas medições que se aproximam dessa condição: o tráfego sequencial no Poptrie e o trace do
+tier-1 no SAIL. Com tráfego aleatório, ou com muitos pacotes em prefixos longos, como numa borda com rotas de IGP mais
+específicas, o Poptrie lidera. O SAIL também testa FIBs com 1\% a 10\% de prefixos longos e continua à frente, por 1,47 a
+2,83 vezes~\cite[\S VI-C, Fig.~14]{yang18}. Esse experimento, porém, varia a fração de prefixos longos na tabela, e a
+disputa com o Poptrie depende da fração do tráfego que chega a eles. \revisar{conferir na Fig.~14 do yang18 qual tráfego foi usado}
+
+\subsubsection{DXR, Tree Bitmap e TCAM}
+O DXR chama o tráfego uniforme aleatório de pior caso~\cite[\S4.1]{zec12}. Para uma estrutura de índice direto, esse
+padrão é favorável: de 75,7\% (D16R) a 94,5\% (D20R) das chaves se resolvem já no índice, sem busca
+binária~\cite[Tab.~3]{zec12}. Nas medições do Poptrie, a vantagem dele sobre o D18R é pequena, de 1,04 a 1,34
+vez~\cite[\S4.5]{asai15}. Por outro lado, o percentil 95 do DXR e do SAIL passa de 234 ciclos nas profundidades 24 e
+25~\cite[\S4.6]{asai15}, o que no DXR bate com o custo da busca binária em prefixos longos. O Tree Bitmap não traz nenhuma
+medição de taxa: a sua Tabela~5 é analítica, e a implementação em hardware é um projeto com meta de 25 milhões de lookups
+por segundo no pior caso~\cite[\S7.2]{eath04}. Medido em software pelo Poptrie, fica de 3,52 a 6,78 vezes
+atrás~\cite[\S4.5]{asai15}, comparação que não faz justiça a um esquema pensado também para hardware. Para a TCAM, o
+corpus só tem números de fabricante, ``over 100 Million lookups/second''~\cite[\S II]{zane03}. Nenhum artigo algorítmico
+mede uma TCAM real.
+
+\subsection{Memória}
+Os artigos usam ``memória'' para grandezas diferentes (Tabela~\ref{tab:memoria}). As medidas do DXR e do Poptrie contam
+só a estrutura de lookup, mas os dois dependem de uma árvore radix separada para aplicar as
+atualizações~\cite[\S3.4]{zec12}, \cite[\S3.5]{asai15}, e essa árvore fica fora da conta. A ordem de grandeza do que fica
+de fora aparece na Tabela~3 do próprio Poptrie, em que a radix, usada como estrutura de lookup, ocupa
+30,48~MiB~\cite[Tab.~3]{asai15}. No SAIL, o tamanho constante vale só para a memória on-chip, que é de no máximo 2,13~MB
+qualquer que seja a FIB~\cite[\S IV-D]{yang18}. A memória off-chip cresce com a tabela; o artigo não informa o seu total em
+IPv4 e pede pelo menos 4~GB de DRAM~\cite[\S IV-D]{yang18}. A TCAM é o único caso em que a tabela inteira fica no dispositivo
+de lookup. A ordenação, porém, depende de um software de gerência com uma trie auxiliar fora da TCAM~\cite[p.~38]{shah01},
+cujo tamanho o artigo não informa.
+
+\begin{table}[t]
+\centering
+\caption{O que cada artigo chama de memória}
+\label{tab:memoria}
+\footnotesize
+\begin{tabular}{P{1.25cm} P{2.65cm} P{2.4cm} P{1.0cm}}
+\toprule
+Esquema & O que é contado e valor & Fica de fora & Fonte \\
+\midrule
+TCAM & entradas de largura fixa; 18 Mbit $\approx$ 512 mil prefixos IPv4 & trie auxiliar de gerência & \cite[\S II]{zane03} \\
+Tree Bitmap & estrutura de busca: 11--23 B/prefixo; físico com réplicas: 128 B/prefixo & folhas, na 1.\textsuperscript{a} medida & \cite[Tab.~6, \S7.2]{eath04} \\
+DXR D16R & estrutura de lookup: 782 KB para 417 mil prefixos & radix usada para reconstruir & \cite[\S3.4]{zec12} \\
+Poptrie18 & FIB: 2,40 MiB & RIB em radix (a radix ocupa 30,48 MiB) & \cite[Tab.~3, \S3]{asai15} \\
+SAIL\_L & limite on-chip: 2,13 MB para qualquer FIB & arrays off-chip; 44,24 MiB no total, medido pelo Poptrie & \cite[\S IV-D]{yang18}, \cite[Tab.~3]{asai15} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Dois números do Tree Bitmap pedem cautela. O artigo informa 128~B de DRAM física por prefixo e 1,6~GB para 10 milhões de
+prefixos~\cite[\S7.2]{eath04}, mas 128~B vezes 10 milhões dá 1,28~GB, e a diferença não é explicada.
+\revisar{conferir a conta na p.~120 do eath04} O argumento de custo do mesmo artigo é mais sólido: por bit, a SRAM custa até 36
+vezes o preço da DRAM de rede com a mesma banda~\cite[\S2.3.2]{eath04}, o que explica a escolha de DRAM no projeto.
+
+Para a parte que precisa ficar no nível rápido, DXR e Poptrie cabem com folga numa L3 de 8~MiB, o que atende roteadores em
+software. Em hardware com SRAM on-chip limitada e FIB crescente, o limite fixo do SAIL é a única garantia do corpus que não
+depende do tamanho da tabela. Para chaves largas e muitos prefixos, o custo por bit favorece a DRAM e pesa contra a TCAM.
+
+\subsection{Custo de atualização}
+O requisito mais citado é de Labovitz, que chega até nós por fonte secundária: em roteadores de backbone, ocorrem em média
+100 mudanças de rota por segundo, com rajadas acima de ``several hundred'' por segundo. Por isso Ruiz-Sánchez et al.
+exigem no máximo 10~ms por atualização~\cite[p.~11]{ruiz01}. Shah e Gupta citam outro trabalho do mesmo grupo para 100 a
+1000 prefixos por segundo~\cite[p.~38]{shah01}, e o CoolCAMs observa em traces reais rajadas de até ``a few thousand''
+adições de rota num único segundo~\cite[\S V]{zane03}. Os 10~ms saem da média. Numa rajada de alguns milhares por segundo,
+o orçamento cai para menos de 1~ms por atualização (conta nossa). A Tabela~\ref{tab:update} compara o que cada artigo
+mede.
+
+\begin{table*}[t]
+\centering
+\caption{Custo de atualização: unidade, valores e o que fica fora da conta}
+\label{tab:update}
+\footnotesize
+\begin{tabular}{P{2.4cm} P{2.3cm} P{2.6cm} P{3.4cm} P{3.0cm} P{2.6cm}}
+\toprule
+Esquema & Unidade & Média & Pior caso & Fora da conta & Carga de teste \\
+\midrule
+TCAM, CAO\_OPT~\cite{shah01} & movimentos de memória & 1,02--1,05 (Tabs.~2--3) & 3 observado; $D/2$ teórico, otimalidade só conjecturada (pp.~40, 43) & tempo, CPU da trie auxiliar, lookups durante o update & traços de 3 h; tabelas de 35--43 mil (Tab.~1) \\
+TCAM particionada~\cite{zane03} & escritas na TCAM e recomputações & 1 a 1,07 escrita; 0 a 74 recomputações com 8 buckets (Tabs.~III--IV) & reescrever a TCAM de dados inteira (\S V) & movimentos para manter a ordem, delegados a~\cite{shah01} & 3,4 e 3,6 milhões de updates (Tab.~III) \\
+Tree Bitmap~\cite{eath04} & cópias de nó & não medido & $256+C$, afirmado sem derivação (\S4) & expansão no array inicial (\S5.1) & nenhuma \\
+DXR~\cite{zec12} & \textmu s por prefixo & 10,2--11,9\us{} (\S4.4) & não informado; prefixos curtos custam mais (Fig.~7) & atualização da radix (\S4.4) & cada prefixo da LINX removido e reinserido (\S4.4) \\
+Poptrie18~\cite{asai15} & \textmu s por update & 2,51\us{} (\S4.9) & não medido; até 1~MiB copiado ao trocar o array de topo (\S3.4--3.5, conta nossa) & --- & 23.446 updates de 1 h, um único peer (\S4.9) \\
+SAIL\_L~\cite{yang18} & acessos à memória & 1,807--2,253 (Fig.~12) & 7,88 observado; ilimitado em teoria (Tab.~II) & trie do plano de controle (\S IV-B) & $319\times500$ updates de 3 coletores (\S VI-C) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Na média, todas as soluções algorítmicas medidas ficam de duas a três ordens de grandeza abaixo dos 10~ms, e o CAO\_OPT faz
+pouco mais de um movimento por atualização. Pelo critério de 2001, o eixo estaria resolvido, mas nenhum artigo mede o pior
+caso nem o comportamento em rajadas. O SAIL\_L tem pior caso ilimitado~\cite[Tab.~II, \S IV-E]{yang18}, e enquanto a
+estrutura on-chip muda nenhum lookup pode ser feito, o que pode causar perda de pacotes~\cite[\S III-C]{yang18}. O Poptrie
+atualiza sem bloquear o lookup, com um único escritor e troca atômica de ponteiro~\cite[\S3.5]{asai15}, mas só informa a
+média. Quando o nó afetado fica acima da profundidade $s$, o array de topo inteiro, de até $4\times2^s$ bytes, é
+substituído~\cite[\S3.4--3.5]{asai15}; com $s=18$, isso dá 1~MiB (conta nossa). O DXR deixa fora da medida a atualização da
+radix~\cite[\S4.4]{zec12}. O limite do Tree Bitmap é afirmado sem derivação, com uma constante $C$ que o texto não define, e
+não cobre a expansão no array inicial. O próprio artigo admite que arrays iniciais de 13 bits ou mais podem ter
+``poor update times'', e 13 bits é o valor da implementação de referência em
+software~\cite[\S4, \S5.1, \S6]{eath04}.
+
+Do lado da TCAM, o pior caso do CAO\_OPT, $D/2$, depende do comprimento das cadeias de prefixos aninhados, que nas tabelas
+medidas não passava de 5~\cite[p.~40]{shah01}. A vantagem depende, portanto, das cadeias curtas dessas tabelas, já que o
+limite cresce com $D$. As tabelas tinham de 35 a 43 mil prefixos, uma ordem de grandeza a menos que as do DXR e do Poptrie, e os traços
+de 3~h correspondem a cerca de 3 a 4 atualizações por segundo (conta nossa a partir da Tab.~1), longe das rajadas que
+motivam o artigo. \revisar{na Tab.~1 do shah01, ``Prefixes'' é igual a Inserts + Deletes; confirmar na p.~43 antes de usar o
+tamanho das tabelas} O CoolCAMs conta uma escrita na TCAM por atualização e delega a manutenção da ordem ao trabalho de
+Shah e Gupta~\cite[\S II]{zane03}, de modo que os dois custos nunca foram medidos juntos.
+
+Se o critério for a média, DXR e Poptrie vencem em software, e o CAO\_OPT deixa a TCAM competitiva em número de
+movimentos. Se o critério for o pior caso com lookups ocorrendo ao mesmo tempo, o corpus não aponta um vencedor. O único
+limite pequeno garantido pela própria estrutura é o do SAIL\_U, de um acesso on-chip por atualização, ao custo de quatro
+acessos on-chip por lookup em vez dos dois do SAIL\_L~\cite[Tab.~II]{yang18}.
+
+\subsection{Energia e custo}
+Os três artigos algorítmicos recentes justificam o abandono da TCAM pelo consumo: ``power-hungry
+TCAMs''~\cite[\S1]{zec12}, problemas de energia e calor~\cite[\S1]{asai15}, ``a huge amount of power''~\cite[\S II]{yang18}.
+Nenhum deles mede o próprio consumo nem apresenta um número de TCAM.
+
+Os dois artigos que discutem a TCAM com números chegam a conclusões opostas. O CoolCAMs a chama de
+``cost-effective''~\cite{zane03} e mostra que, se a tabela for particionada e só um bucket for pesquisado, a potência
+cai de forma garantida em 7,98 vezes com 8 buckets~\cite[\S IV-D]{zane03}. O Tree Bitmap considera o custo
+``extremely prohibitive'' e estima que 10 milhões de entradas de 52 bits exigiriam 20 componentes, mais de US\$~4000 e
+mais de 200~W~\cite[\S2.3.3]{eath04}. Sobre o CoolCAMs, diz que as ideias dele ``do not appear to be reflected in
+practice''~\cite[\S3]{eath04}.
+
+Os cenários, porém, são diferentes. O CoolCAMs trata de tabelas IPv4 de até 1 milhão de entradas~\cite[\S II]{zane03}. O
+Tree Bitmap trata de um roteador de múltiplos serviços que pode precisar de chaves de VPN de 52 bits e de até 10 milhões de
+prefixos~\cite[\S2.1, Tab.~3]{eath04}, cenário que o próprio artigo diz não ser o comum~\cite[\S7.2]{eath04}. Além disso,
+os 200~W só valem ``if techniques are not employed to limit the components and banks of CAMs that are
+searched''~\cite[\S2.3.3]{eath04}, e limitar os bancos pesquisados é a técnica do CoolCAMs. As duas posições são
+compatíveis. Com particionamento e uma tabela IPv4 de 1 milhão de entradas, a TCAM fica em poucos watts segundo o modelo; com
+chaves largas, dezenas de chips e busca em todos os bancos, fica cara.
+
+Os números dos dois lados são frágeis. O CoolCAMs não mede potência: multiplica o número de entradas pesquisadas pela
+potência nominal de 15~W, com um modelo linear sem citação de fonte~\cite[\S II, \S IV-D]{zane03}. O fator 7,98 vale para
+uma das variantes (\textit{postorder-split}) numa tabela hipotética de exatamente 1 milhão de entradas, e as tabelas reais
+testadas tinham de 110 a 122 mil prefixos~\cite[Tab.~II]{zane03}. O exemplo de pior caso usa uma TCAM de dados de 15~W e
+1 milhão de entradas~\cite[\S IV-D]{zane03}, enquanto a Seção~II do artigo associa 15~W a 512 mil prefixos. Pelo modelo do
+próprio artigo, pesquisar 125.288 entradas daria cerca de 3,6~W, e não menos de 2~W (conta nossa).
+\revisar{conferir a conta} No Tree Bitmap, com chips de 256 mil entradas de 72 bits~\cite[\S2.3.3]{eath04}, 10 milhões de
+entradas pediriam cerca de 39 componentes. O número 20 só fecha com entradas de 36 bits, em que 52 bits não cabem (conta
+nossa). \revisar{conferir a conta} O erro subestima a TCAM e não muda a conclusão do artigo, mas o número publicado não é
+reprodutível.
+
+Com o corpus, não dá para dizer qual abordagem gasta menos energia por lookup, porque só a TCAM tem modelo de consumo e
+ninguém mede o das soluções algorítmicas. O corpus sustenta afirmações mais modestas: o particionamento reduz o consumo
+modelado da TCAM em cerca de 8 vezes para tabelas IPv4 de 1 milhão de entradas; chaves largas e tabelas de dezenas de
+milhões encarecem a TCAM; e, para funções de rede virtualizadas em servidores comuns, não há TCAM disponível~\cite[\S1]{asai15}, o que resolve
+a questão sem depender de números.
+
+\subsection{Escala da tabela e IPv6}
+O survey inclui entre os critérios a escalabilidade com o número e o comprimento dos prefixos~\cite[p.~20]{ruiz01}. Os
+artigos do corpus testam escalas muito diferentes (Tabela~\ref{tab:corpus}). Os dois de TCAM usam tabelas reais de 35 a
+122 mil prefixos, e o caso de 1 milhão de entradas do CoolCAMs aparece só na análise de pior caso e numa tabela
+sintética~\cite[\S III-D, \S IV-D]{zane03}. O Tree Bitmap avalia tabelas de 19 a 41 mil prefixos~\cite[Tab.~6]{eath04},
+embora fixe para a tabela global um requisito de ``a million or more prefixes''~\cite[\S2.2]{eath04}. DXR, Poptrie e SAIL
+usam tabelas reais de 114 a 532 mil prefixos, e só o Poptrie vai além, com tabelas sintéticas de até 886
+mil~\cite[Tab.~1]{asai15}.
+
+Nessa faixa aparecem limites de formato que os testes com tabelas menores não mostram. O SAIL guarda o identificador de
+chunk em 15 bits, o que bastava nas FIBs reais medidas pelos autores~\cite[\S IV-B]{yang18}. Nas duas tabelas sintéticas
+maiores do Poptrie, de 877 e 886 mil prefixos, o número de chunks passa de $2^{15}$ e o SAIL não
+compila~\cite[\S4.8, Tab.~5]{asai15}. A versão de 2018 do SAIL chama a falha de ``tiny problem'' e propõe 16 bits mais um
+bitmap de $2^{16}$ bits~\cite[\S VI-C]{yang18}, sem medir a correção. O limite depende do número de chunks e não do total
+de rotas, e nenhum dos dois artigos dá um limiar em número de rotas. Essas tabelas sintéticas foram construídas dividindo
+cada prefixo de até /24, /20 e /16 em dois, quatro e oito pedaços com próximos saltos distintos~\cite[\S4.1]{asai15}, o
+que multiplica os chunks. Pela nossa leitura, não se sabe se tabelas reais do mesmo tamanho teriam o mesmo efeito. O DXR
+tem limites do mesmo tipo, até $2^{19}$ faixas e 4096 entradas por chunk~\cite[\S3.2]{zec12}, e o Poptrie precisou
+estender o índice do DXR para $2^{20}$ faixas para rodá-lo nessas tabelas~\cite[\S4.8]{asai15}. O próprio Poptrie limita
+a FIB a $2^{16}$ entradas, porque a folha tem 16 bits, e diz que o campo pode crescer ao custo de mais
+memória~\cite[\S5]{asai15}.
+
+No IPv6, a evidência é fraca em todas as famílias. O DXR declara o índice direto inviável, porque o espaço IPv6 é
+esparso: 0,026\% de ocupação, contra 60,36\% no IPv4~\cite[\S3]{zec12}. Mesmo assim, o Poptrie adaptou o D18R ao IPv6 e o
+mediu a 169,91~Mlps~\cite[\S4.10]{asai15}, numa tabela pequena e com endereços sorteados dentro de 2000::/8, o que não
+decide a questão. Segundo o Poptrie, o SAIL não aceita prefixos mais longos que /64~\cite[\S4.10]{asai15}; a versão de
+2018 propõe um híbrido de bitmaps e filtros de Bloom, com até 12 acessos off-chip no pior caso, avaliado em FIBs IPv6
+sintéticas derivadas das IPv4~\cite[\S VII-C]{yang18}. O Poptrie é o único com teste numa tabela IPv6 real, de 20.440
+prefixos, em que o Poptrie18 faz 211,32~Mlps, 1,24 vez o D18R~\cite[\S4.10, Tab.~6]{asai15}; os próprios autores chamam
+essa avaliação de ``less interesting'' por causa do tamanho da tabela~\cite[\S4.10]{asai15}. Do lado da TCAM, o CoolCAMs
+diz que técnicas semelhantes servem ao IPv6, sem avaliá-las~\cite[\S I]{zane03}, e Shah e Gupta só definem
+$L=128$~\cite[p.~37]{shah01}. Pela fórmula, o pior caso do PLO\_OPT passaria de 16 para 64 movimentos (conta nossa).
+
+Nenhuma abordagem tem evidência para tabelas reais maiores que 532 mil prefixos ou para IPv6 em escala de produção. Nas
+tabelas sintéticas maiores, os limites de formato apareceram antes dos de desempenho, inclusive no SAIL, que se apresenta
+como independente do tamanho da FIB.
+
+% =====================================================================
+\section{Discussão: onde cada abordagem vence}
+
+A Tabela~\ref{tab:cenarios} junta as análises da Seção~IV. Para cada cenário, indicamos a abordagem mais bem sustentada
+pelo corpus e o tipo de evidência: \textbf{M} quando os próprios autores mediram, \textbf{C} quando um concorrente mediu e
+\textbf{A} quando há só análise, modelo ou simulação sem tráfego. Nenhum resultado do corpus foi reproduzido por um grupo
+independente; as medições cruzadas entre Poptrie, SAIL e DXR foram feitas por concorrentes diretos.
+
+\begin{table*}[t]
+\centering
+\caption{Abordagem mais bem sustentada por cenário (M: medido pelos autores; C: medido por concorrente; A: análise ou modelo)}
+\label{tab:cenarios}
+\footnotesize
+\begin{tabular}{P{4.3cm} P{2.6cm} P{3.4cm} P{5.6cm}}
+\toprule
+Cenário & Abordagem & Evidência & Ressalva principal \\
+\midrule
+Backbone em hardware com SRAM on-chip (ASIC ou FPGA), FIB crescendo, tráfego em prefixos de até /24 & SAIL\_L & M (CPU, FPGA simulado); A (limite on-chip) & pior caso de atualização ilimitado; lookup bloqueado durante a escrita on-chip (\S III-C, Tab.~II de~\cite{yang18}) \\
+Roteador em software ou NFV em x86, tráfego de borda com prefixos longos, IPv4 e IPv6 & Poptrie & M (35 tabelas, trace de borda); C (atrás do SAIL com tráfego de backbone) & laço de lookup sem E/S de pacotes; IPv6 testado com 20.440 prefixos (\S4.10 de~\cite{asai15}) \\
+Software, só IPv4, menor pegada de memória & DXR (D16R) & M; C (Poptrie e SAIL) & só IPv4 (\S3 de~\cite{zec12}); busca binária lenta em prefixos longos \\
+Hardware com DRAM, chaves largas (VPN, várias tabelas), pior caso determinístico & Tree Bitmap & A (sem medição no artigo) & limite de atualização sem prova; tabelas de 19--41 mil \\
+Tabelas pequenas ou médias com exigência de determinismo e gerência simples & TCAM com CAO\_OPT e particionamento & A (simulação de updates e modelo de potência) & custo e potência crescem com o número de entradas; tabelas testadas de 35 a 122 mil \\
+Tabelas grandes com poucos pacotes acima de /24 & híbrido: SAIL para até /24, TCAM para /25 ou mais & proposto, não medido (\S I-D de~\cite{yang18}) & sem avaliação no corpus \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Entre as soluções algorítmicas, a escolha depende mais da composição do tráfego e do tamanho da cache que do tamanho da
+tabela. O SAIL e o Poptrie trocam de posição conforme a fração de pacotes que alcança prefixos longos, e o DXR perde
+terreno nas profundidades em que a busca binária domina. Para a TCAM, pesam o tamanho da tabela e a largura da chave: o
+CoolCAMs e o Tree Bitmap concordam nos fatos e divergem porque tratam de pontos diferentes desse
+espaço.
+
+Os cenários com IPv6 e com tabelas reais acima de 532 mil prefixos ficaram fora da tabela, porque nenhuma abordagem tem
+evidência suficiente para eles (Seção~IV-E).
+
+Os híbridos aparecem em três artigos, cada um de um jeito. O SAIL admite TCAM para os prefixos de /25 em
+diante~\cite[\S I-D]{yang18}, e o CoolCAMs usa uma trie numa TCAM de índice pequena para escolher o
+bucket~\cite[\S IV]{zane03}. Os ``nós CAM'' do Tree Bitmap, por sua vez, são uma codificação de nó em DRAM, não um chip de
+TCAM~\cite[\S5.5]{eath04}. Nenhum desses híbridos tem medição de desempenho no corpus.
+
+As divergências da Seção~IV indicam o que uma comparação entre essas estruturas precisaria informar para ser
+aproveitada por outros grupos. Cada item abaixo responde a um problema que encontramos:
+\begin{enumerate}
+\item a origem do trace (borda ou backbone) e a fração dos pacotes que casa prefixos acima de /24, da qual depende a
+  disputa entre Poptrie e SAIL;
+\item a origem do código de cada concorrente, com versão e parâmetros, ou a reimplementação publicada;
+\item a distribuição de ciclos por lookup, além da taxa média, com o custo de gerar os endereços descontado;
+\item a memória por nível (on-chip ou cache, e off-chip), incluindo a estrutura de controle usada nas atualizações;
+\item o pior caso de atualização e o comportamento em rajadas de milhares de atualizações por segundo, com lookups
+  acontecendo ao mesmo tempo;
+\item a energia por lookup, medida da mesma forma para a TCAM e para as estruturas algorítmicas.
+\end{enumerate}
+O survey de 2001 já fazia parte disso: publicava percentis do tempo de lookup e tratava o tráfego uniforme por prefixo
+como limitação~\cite[Tab.~3, p.~22]{ruiz01}. Entre os três artigos algorítmicos recentes, só o Poptrie publica a
+distribuição de ciclos por lookup~\cite[Tab.~4]{asai15}. O DXR dá a distribuição de passos da busca
+binária~\cite[Tab.~3]{zec12}, e no SAIL não encontramos distribuição de latência.
+
+% =====================================================================
+\section{Limitações e ameaças à validade}
+
+O corpus termina em 2018 e tem um representante por família. Ficaram de fora trabalhos mais recentes e plataformas como
+switches programáveis, e os dados de capacidade e potência de TCAM são de dispositivos de 2001 a 2004. As conclusões sobre
+famílias valem, portanto, para os representantes escolhidos.
+
+Quase toda a evidência foi medida pelos próprios autores, e as medições cruzadas foram feitas por concorrentes. Encontramos
+também inconsistências internas que reduzem a reprodutibilidade. No SAIL, há ``12 FIBs'' listadas com 13
+nomes~\cite[\S VI-A]{yang18}, uma tabela anunciada com 23 FIBs que tem 24 linhas~\cite[Tab.~IV]{yang18}, três tamanhos
+diferentes para a mesma tabela rrc00~\cite[\S VI-B, \S VII-C, Tab.~IV]{yang18} e citações trocadas, como ``Poptrie
+[11]''~\cite[\S VI-C]{yang18}. No Tree Bitmap, os doze valores da Tabela~5 ficam 9 bits acima da fórmula dada no próprio
+texto~\cite[\S7.2]{eath04}. Evitamos usar números que dependem desses pontos.
+
+As contas marcadas como ``conta nossa'' são derivações simples a partir de números impressos, e não usamos leituras
+aproximadas de gráficos. Por fim, o primeiro rascunho foi escrito por IA. Os riscos conhecidos desse uso são erros
+plausíveis e números trocados; a Seção~II-C descreve como eles foram controlados.
+\revisar{completar com o resultado da revisão do grupo}
+
+% =====================================================================
+\section{Conclusão}
+
+Os resultados publicados só permitem escolher entre TCAM e algoritmo depois de fixado o cenário. Em roteadores de software, Poptrie e DXR cabem na cache e atualizam em microssegundos. O Poptrie leva vantagem com
+prefixos longos e IPv6, e o DXR com a menor pegada em IPv4. Em hardware de backbone com SRAM on-chip, o SAIL é o único a
+garantir memória on-chip constante, ao preço de um pior caso de atualização ilimitado. A TCAM continua defensável para
+tabelas de tamanho moderado, em que determinismo e simplicidade pesam mais que energia, e o particionamento do CoolCAMs
+reduz o consumo modelado em cerca de 8 vezes.
+
+Nenhum dos sete artigos traz as medições que mais ajudariam a decidir: o pior caso de atualização durante rajadas, com
+lookups acontecendo ao mesmo tempo, em todas as estruturas; a energia por lookup das soluções algorítmicas, na mesma base
+usada para a TCAM; e testes com tabelas reais maiores, já que nas sintéticas os limites de formato apareceram. Também faltam
+traces públicos de borda e de backbone que informem a fração de pacotes acima de /24, a premissa de que depende a disputa
+entre Poptrie e SAIL.
+
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
+
 \end{document}

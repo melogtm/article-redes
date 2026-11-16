@@ -43,6 +43,7 @@ A contribuição da revisão é normalizar esses números lado a lado e dizer em
   de TCAM; inconsistências internas encontradas nos artigos; uso de IA.
 - **VII. Conclusão**: o que um projetista pode concluir hoje e quais medições faltam (pior caso de update, energia comparável, tráfego real público).
 
-## Decisões para o grupo
-1. A tese acima serve, ou preferem um enquadramento mais "quem ganha em cada cenário"?
-2. A seção de uso de IA fica dentro do artigo (II-C, curta), e o detalhe vai para a declaração (parte III). Ok?
+## Decisões do grupo (16/11, Gabriel)
+1. Tese mantida e combinada com "quem ganha em cada cenário": os resultados não se anulam, delimitam cenários.
+   A Seção V vira o centro propositivo, com a tabela de cenários e o nível de evidência de cada recomendação.
+2. Uso de IA: curto no artigo (II-C); o detalhe vai para a declaração (parte III).
