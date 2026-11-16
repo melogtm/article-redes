@@ -203,7 +203,9 @@ def exporta(raiz, autor, pasta):
             with open(os.path.join(logs, nome), 'w', encoding='utf-8') as o:
                 o.write(render(inter, meta, autor))
             print('gravado', os.path.join('logs', nome), f'({len(inter)} interações)')
-    idx = sorted(os.path.basename(p) for p in glob.glob(os.path.join(logs, 'cc_*.md')))
+    # cc_<AAAAMMDD_HHMM>_<autor>.md (Claude Code) e ext_<AAAAMMDD>_<autor>_<ferramenta>.md (outras IAs, copiados à mão), por data
+    idx = sorted((os.path.basename(p) for p in glob.glob(os.path.join(logs, 'cc_*.md')) + glob.glob(os.path.join(logs, 'ext_*.md'))),
+                 key=lambda n: n.split('_', 1)[1])
     with open(os.path.join(logs, 'sessoes.tex'), 'w', encoding='utf-8') as o:
         o.write(''.join(f'\\markdownInput{{../logs/{n}}}\n\\clearpage\n' for n in idx))
 

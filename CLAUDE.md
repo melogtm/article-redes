@@ -52,3 +52,12 @@ cd artigo  && latexmk -pdf artigo.tex        # 8 a 12 páginas: pdfinfo artigo.p
 cd entrega && latexmk -lualatex entrega.tex  # capa + artigo + log + declaração
 grep -c '\\revisar' artigo/artigo.tex        # o que falta o grupo validar
 ```
+
+## Uso de outras IAs (Gemini, ChatGPT etc.)
+- Toda conversa entra no log. Ao fim de cada uma, copie a conversa inteira (prompts e respostas, sem resumir nem cortar)
+  para `logs/ext_<AAAAMMDD>_<autor>_<ferramenta>.md`. No topo, informe a ferramenta, o nome do modelo exibido na tela, a data, o autor
+  e o link de compartilhamento. Copie no mesmo dia, porque conversa apagada não volta. Antes do commit, retire dados pessoais (e-mail, telefone).
+- `/log-ia` inclui esses arquivos na Parte II em ordem de data. Declare a ferramenta e o modelo na Parte III (`entrega/entrega.tex`).
+- As regras acima valem para qualquer IA. Referência só com PDF em `ep2_export/` e BibTeX tirado do DOI. Número só com localizador
+  conferido no PDF. Trecho escrito com outra IA só entra no `.tex` depois de passar pelo agente `verificador-citacoes`.
+  Use essas IAs para pedir crítica e explicação, não texto pronto.
