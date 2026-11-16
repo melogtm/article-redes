@@ -1,0 +1,94 @@
+% Compilar com: latexmk -lualatex entrega.tex  (depois de compilar artigo/artigo.tex)
+\documentclass[11pt,a4paper]{article}
+\usepackage[brazil]{babel}
+\usepackage{fontspec}
+% Fallback para símbolos que o Latin Modern não tem (⌈ ⌉ ≤ → ✓ ...), comuns nos logs
+\directlua{luaotfload.add_fallback("simbolos", {"DejaVu Sans:mode=harf;", "DejaVu Sans Mono:mode=harf;", "FreeSerif:mode=harf;"})}
+\setmainfont{Latin Modern Roman}[RawFeature={fallback=simbolos}]
+\setmonofont{DejaVu Sans Mono}[Scale=0.85]
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{pdfpages}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage[pipeTables, tableCaptions, fencedCode, smartEllipses, hashEnumerators]{markdown}
+\usepackage{array}
+\usepackage{xurl}
+\usepackage{fvextra}  % quebra de linha nos blocos de código do log
+\fvset{breaklines=true, breakanywhere=true, fontsize=\small}
+% "####" vira título em bloco (o \paragraph padrão fica na mesma linha e cola na tabela seguinte)
+\markdownSetup{renderers={headingFour={\par\medskip\noindent\textbf{#1}\par\nopagebreak}}}
+% Tabelas do log: colunas de largura igual com quebra de linha, em vez de "l" (que estoura a margem)
+\makeatletter
+\def\markdownLaTeXReadAlignments#1{%
+  \advance\markdownLaTeXColumnCounter by 1\relax
+  \addto@hook\markdownLaTeXTableAlignment{>{\raggedright\arraybackslash\footnotesize}p{\dimexpr(\linewidth-2\tabcolsep*\markdownLaTeXColumnTotal)/\markdownLaTeXColumnTotal\relax}}%
+  \ifnum\markdownLaTeXColumnCounter<\markdownLaTeXColumnTotal\relax\else
+    \expandafter\@gobble
+  \fi\markdownLaTeXReadAlignments}
+\makeatother
+\newcommand{\revisar}[1]{\textcolor{red}{[REVISAR: #1]}}
+\setcounter{secnumdepth}{0}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+\sloppy
+
+\begin{document}
+
+% ---------------- Capa (mesmo modelo do EP1) ----------------
+\begin{titlepage}
+\centering
+Universidade de São Paulo\\
+Escola de Artes, Ciências e Humanidades (EACH)
+\vspace*{\fill}
+
+{\LARGE\bfseries Exercício Prático 2\par}
+\vspace{0.6em}
+{\large Redes de Computadores\par}
+\vspace{0.6em}
+{\large Revisão crítica de literatura: lookup de rota por\\ \textit{longest prefix match}, TCAM e algoritmos\par}
+\vspace*{\fill}
+
+Gabriel Trigueiro Melo -- 15511832\\
+Ana Vitória Chaves Viana -- 12733869\\
+Diogo dos Santos da Rocha -- 13673281
+\vspace*{\fill}
+
+São Paulo\\
+\revisar{data da entrega}
+\end{titlepage}
+
+% ---------------- Parte I ----------------
+\includepdf[pages=-,pagecommand={\thispagestyle{empty}}]{../artigo/artigo.pdf}
+
+% ---------------- Parte II ----------------
+\clearpage
+\part*{Parte II: Log completo de conversas com a IA}
+\addcontentsline{toc}{part}{Parte II: Log completo de conversas com a IA}
+
+Este log reúne todas as conversas do grupo com a IA durante o trabalho, na ordem em que aconteceram.
+\begin{itemize}
+\item \textbf{31/10 e 01/11/2026, claude.ai:} os dois primeiros arquivos foram copiados sem alteração dos registros
+  feitos por Gabriel no Projeto ``EP 2 - Redes''. Lá as ações da IA (buscas, leitura de arquivos) aparecem
+  como linhas em itálico marcadas \emph{Ações da IA}.
+\item \textbf{A partir de 16/11/2026, Claude Code:} cada sessão foi exportada automaticamente do transcript
+  que o Claude Code grava (arquivo JSONL), pelo script \texttt{.claude/skills/log-ia/export\_log.py} do
+  repositório. Os prompts e as respostas em texto aparecem inteiros. As chamadas de ferramentas aparecem
+  resumidas em itálico, como \emph{Ações da IA}. Para cada subagente aparecem o pedido enviado e o relatório
+  devolvido. Quando o transcript guardou uma fala só como resumo de uma linha, ela aparece marcada como
+  \emph{(narração)}.
+\item \textbf{O que não aparece:} as instruções internas do sistema, o raciocínio interno do modelo e a
+  saída bruta das ferramentas (conteúdo de arquivos e comandos).
+\end{itemize}
+
+\markdownInput{../logs/01_claude_ai_31_10_2026.md}
+\clearpage
+\markdownInput{../logs/02_correcoes_01_11_2026.md}
+\clearpage
+\input{../logs/sessoes.tex}
+
+% ---------------- Parte III ----------------
+\clearpage
+\part*{Parte III: Declaração de uso de IA}
+\revisar{declaração a ser escrita na Fase 7}
+
+\end{document}
