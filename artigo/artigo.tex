@@ -92,14 +92,12 @@ os eixos e a escala, a V discute os cenários, a VI trata das limitações e a V
 
 \subsection{Busca e seleção}
 A busca exploratória foi feita no IEEE Xplore, na ACM Digital Library e no Google Scholar, com combinações de
-``IP lookup'', ``longest prefix match'', ``TCAM update'' e ``TCAM power''.
-
-Os critérios de inclusão foram: publicação revisada por pares; tratar de LPM para repasse IP; trazer dados sobre pelo
-menos um dos quatro eixos; e haver versão publicada acessível pela rede da USP. A busca, feita com ajuda da IA
-(Seção~II-C), levantou oito candidatos e dois de reserva. Um dos oito, sobre atualização de TCAM (He et al., IEEE/ACM
-ToN 2018 [NÃO VERIFICADO]), foi descartado depois da leitura, porque trata de classificação de pacotes multicampo e não
-de LPM. Os dois de reserva não
-foram lidos. O artigo mais recente do corpus é de 2018, e nenhum critério acima corta por data.
+``IP lookup'', ``longest prefix match'', ``TCAM update'' e ``TCAM power''. Os critérios de inclusão foram: publicação
+revisada por pares; tratar de LPM para repasse IP; trazer dados sobre pelo menos um dos quatro eixos; e haver versão
+publicada acessível pela rede da USP. A busca, feita com ajuda da IA (Seção~II-C), levantou oito candidatos e dois de
+reserva. Um dos oito foi descartado depois da leitura, porque trata de classificação de pacotes multicampo e não de
+LPM, e os dois de reserva não foram lidos. Nenhum critério corta por data. O artigo mais recente do corpus é de 2018
+porque não encontramos trabalhos relevantes publicados depois disso.
 
 De três artigos, a primeira versão obtida não era a que citamos. Do DXR e do survey, tínhamos um preprint e um
 relatório técnico, com números e numeração diferentes dos da versão publicada, e trocamos os dois pela versão de
@@ -424,8 +422,8 @@ SAIL\_L & limite on-chip: 2,13 MB para qualquer FIB & arrays off-chip; 44,24 MiB
 \end{table}
 
 Dois números do Tree Bitmap pedem cautela. O artigo informa 128~B de DRAM física por prefixo e 1,6~GB para 10 milhões de
-prefixos~\cite[\S7.2]{eath04}, mas 128~B vezes 10 milhões dá 1,28~GB, e a diferença não é explicada. O argumento de custo do mesmo artigo é mais sólido: por bit, a SRAM custa até
-36 vezes o preço da DRAM de rede com a mesma banda~\cite[\S2.3.2]{eath04}, o que explica a escolha de DRAM no projeto.
+prefixos~\cite[\S7.2]{eath04}, mas 128~B vezes 10 milhões dá 1,28~GB, e a diferença não é explicada. O argumento de
+custo do mesmo artigo é mais sólido: por bit, a SRAM custa até 36 vezes o preço da DRAM de rede com a mesma banda~\cite[\S2.3.2]{eath04}, o que explica a escolha de DRAM no projeto.
 
 Medidos pelo mesmo grupo e na mesma tabela, o D16R ocupa 1,16~MiB, o Poptrie sem tabela de topo ocupa 1,49~MiB e o
 Poptrie18, 2,40~MiB~\cite[Tab.~3]{asai15}. Os três cabem numa L3 de 8~MiB, o que atende roteadores em software se as outras
